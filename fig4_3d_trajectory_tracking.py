@@ -10,6 +10,7 @@
 - 起点、转换点、终点标记
 """
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -142,7 +143,6 @@ ax.set_zlim([-0.5, 9])
 plt.tight_layout()
 
 # 保存图形到outputs文件夹
-import os
 os.makedirs('outputs', exist_ok=True)
 output_filename = os.path.join('outputs', 'fig4_3d_trajectory_tracking.png')
 plt.savefig(output_filename, dpi=300, bbox_inches='tight', facecolor='white')
