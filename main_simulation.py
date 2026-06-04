@@ -1223,6 +1223,8 @@ class 仿真环境:
         d_hat_history = np.zeros((N_steps, 3))
         solve_time_history = np.zeros(N_steps)
         feasibility_history = np.zeros(N_steps, dtype=bool)
+        kappa_e_per_step = np.zeros(N_steps)
+        kappa_theta_per_step = np.zeros(N_steps)
 
         print(f"\n{'='*80}")
         print(f"开始仿真: T={T_sim}s, dt={dt}s, N={N_steps} 步")
@@ -1290,6 +1292,13 @@ class 仿真环境:
 
             # 裁剪状态防止数值问题
             x_next[6:8] = np.clip(x_next[6:8], -np.deg2rad(60), np.deg2rad(60))
+
+            # 每步记录自适应权重缩放因子
+            e_p_step = x[0:3] - x_ref_trajectory[0, 0:3]
+            kappa_e_step, kappa_theta_step = self.controller.自适应权重.计算缩放因子(
+                e_p_step, x[6], x[7])
+            kappa_e_per_step[k] = kappa_e_step
+            kappa_theta_per_step[k] = kappa_theta_step
 
             # 存储数据
             x_history[k] = x
@@ -1427,8 +1436,8 @@ class 结果分析器:
         x_ref = results['reference']
 
         # 创建带子图的图形
-        fig = plt.figure(figsize=(16, 12))
-        gs = fig.add_gridspec(4, 3, hspace=0.3, wspace=0.3)
+        fig = plt.figure(figsize=(16, 14))
+        gs = fig.add_gridspec(4, 3, hspace=0.5, wspace=0.35)
 
         # ===== 第一行: 位置和跟踪误差 =====
         ax1 = fig.add_subplot(gs[0, :2])
@@ -1510,9 +1519,13 @@ class 结果分析器:
 
         ax8 = fig.add_subplot(gs[3, 1:])
         if 'controller_metrics' in results:
-            kappa_e = results['controller_metrics']['kappa_e_history']
-            kappa_theta = results['controller_metrics']['kappa_theta_history']
-            time_ctrl = time[:len(kappa_e)]
+            kappa_e_full = results['controller_metrics']['kappa_e_history']
+            kappa_theta_full = results['controller_metrics']['kappa_theta_history']
+            # 每个仿真步中优化器多次调用update_weights，需按仿真步长截取
+            N = len(time)
+            kappa_e = kappa_e_full[:N]
+            kappa_theta = kappa_theta_full[:N]
+            time_ctrl = time
             ax8.plot(time_ctrl, kappa_e, 'b-', linewidth=2, label='κ_e (位置)')
             ax8.plot(time_ctrl, kappa_theta, 'r-', linewidth=2, label='κ_θ (摆动)')
             ax8.set_ylabel('缩放因子', fontsize=11, fontweight='bold')

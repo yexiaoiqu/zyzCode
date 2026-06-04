@@ -25,7 +25,6 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 # 设置出版物级别的参数
-rcParams['font.family'] = ['serif', 'sans-serif']
 rcParams['font.size'] = 10
 rcParams['axes.labelsize'] = 10
 rcParams['axes.titlesize'] = 11

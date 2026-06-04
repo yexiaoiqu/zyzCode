@@ -31,7 +31,6 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 # 设置出版物级别的参数
-rcParams['font.family'] = ['serif', 'sans-serif']
 rcParams['font.size'] = 10
 rcParams['axes.labelsize'] = 10
 rcParams['axes.titlesize'] = 11
@@ -196,8 +195,8 @@ for i in range(质量变化索引, len(t)):
 # 创建包含三个子图的图形
 # ============================================================================
 
-fig = plt.figure(figsize=(10, 10))
-gs = fig.add_gridspec(4, 1, height_ratios=[3, 3, 1, 0.1], hspace=0.3)
+fig = plt.figure(figsize=(12, 10))
+gs = fig.add_gridspec(3, 1, height_ratios=[3, 3, 2], hspace=0.45)
 
 ax1 = fig.add_subplot(gs[0])
 ax2 = fig.add_subplot(gs[1])
@@ -237,9 +236,10 @@ ax1.annotate(f'峰值: {误差峰值变化后:.3f} m',
 对比文本 += f'  PID:                 {PID恢复时间:.1f}s'
 
 框属性 = dict(boxstyle='round', facecolor='lightyellow', alpha=0.85)
-ax1.text(0.58, 0.97, 对比文本, transform=ax1.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+ax1.text(0.98, 0.97, 对比文本, transform=ax1.transAxes, fontsize=7,
+         verticalalignment='top', horizontalalignment='right', bbox=框属性)
 
+# 添加性能标注
 # 为其他控制器标记恢复时间（用于视觉对比）
 ax1.axvline(x=质量变化时间 + 固定MPC恢复时间, color='orange',
            linestyle='-.', linewidth=1, alpha=0.4)
@@ -302,7 +302,7 @@ ax2.annotate(f'峰值: {摆角峰值变化后:.1f}°',
 标注文本 += f'恢复: ~{本文恢复时间:.1f}s'
 
 ax2.text(0.72, 0.97, 标注文本, transform=ax2.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+         verticalalignment='top', bbox=框属性)
 
 ax2.set_ylabel('摆角 $|\\theta(t)|$ (度)', fontsize=10)
 ax2.set_xlabel('时间 (s)', fontsize=10)
@@ -347,6 +347,7 @@ ax3.set_ylim([0.2, 1.0])
 
 fig.suptitle('图8: 突发载荷质量变化下的动态恢复',
             fontsize=13, fontweight='bold', y=0.995)
+plt.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.08)
 
 # ============================================================================
 # 保存和显示
@@ -363,13 +364,13 @@ print("\n" + "="*70)
 print("突发质量变化下的动态恢复")
 print("="*70)
 
-print(f"\n⚖️  质量变化:")
+print(f"\n[质量变化]")
 print(f"  初始质量:     {初始质量} kg")
 print(f"  最终质量:       {最终质量} kg")
 print(f"  变化:           {质量变化百分比:+.1f}%")
 print(f"  变化时间:      {质量变化时间} s")
 
-print(f"\n📊 跟踪误差:")
+print(f"\n[跟踪误差]")
 print(f"  变化前 (均值):  {误差均值变化前:.4f} m")
 print(f"  变化后 (峰值):{误差峰值变化后:.4f} m")
 if 实际恢复时间:
@@ -377,23 +378,23 @@ if 实际恢复时间:
 else:
     print(f"  恢复时间:     N/A")
 
-print(f"\n📊 摆角:")
+print(f"\n[摆角]")
 print(f"  变化前 (均值):  {摆角均值变化前:.2f}°")
 print(f"  变化后 (峰值):{摆角峰值变化后:.2f}°")
 
-print(f"\n🏆 恢复时间对比:")
-print(f"  本文（自适应）: {本文恢复时间:.1f} s  ⭐ (最佳)")
+print(f"\n[恢复时间对比]")
+print(f"  本文（自适应）: {本文恢复时间:.1f} s  * (最佳)")
 print(f"  固定权重MPC:    {固定MPC恢复时间:.1f} s  ({(固定MPC恢复时间/本文恢复时间 - 1)*100:+.0f}%)")
 print(f"  线性MPC:          {线性MPC恢复时间:.1f} s  ({(线性MPC恢复时间/本文恢复时间 - 1)*100:+.0f}%)")
 print(f"  PID:                 {PID恢复时间:.1f} s  ({(PID恢复时间/本文恢复时间 - 1)*100:+.0f}%)")
 
-print(f"\n✅ 核心发现:")
-print(f"  • 质量变化立即引起扰动")
-print(f"  • 本文控制器在~{本文恢复时间:.1f}s内恢复")
-print(f"  • 比固定权重MPC快 {((固定MPC恢复时间 - 本文恢复时间)/本文恢复时间 * 100):.0f}%")
-print(f"  • 比PID控制器快 {((PID恢复时间 - 本文恢复时间)/本文恢复时间 * 100):.0f}%")
-print(f"  • 摆角峰值约{摆角峰值变化后:.0f}°（在安全限制内）")
-print(f"  • 自适应权重实现快速参数调整")
+print(f"\n[核心发现]")
+print(f"  - 质量变化立即引起扰动")
+print(f"  - 本文控制器在~{本文恢复时间:.1f}s内恢复")
+print(f"  - 比固定权重MPC快 {((固定MPC恢复时间 - 本文恢复时间)/本文恢复时间 * 100):.0f}%")
+print(f"  - 比PID控制器快 {((PID恢复时间 - 本文恢复时间)/本文恢复时间 * 100):.0f}%")
+print(f"  - 摆角峰值约{摆角峰值变化后:.0f}°（在安全限制内）")
+print(f"  - 自适应权重实现快速参数调整")
 print("="*70)
 
 plt.show()

@@ -27,7 +27,6 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 # 设置出版物级别的参数
-rcParams['font.family'] = ['serif', 'sans-serif']
 rcParams['font.size'] = 10
 rcParams['axes.labelsize'] = 10
 rcParams['axes.titlesize'] = 11
@@ -221,7 +220,7 @@ ax1.plot(t[峰值索引_自适应], 跟踪误差_自适应[峰值索引_自适�
 
 框属性 = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
 ax1.text(0.02, 0.98, 文本误差, transform=ax1.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+         verticalalignment='top', bbox=框属性)
 
 # 高亮固定权重方法的高跟踪误差区域
 高误差区域 = 跟踪误差_固定 > 0.35
@@ -272,7 +271,7 @@ ax2.plot(t[峰值索引_自适应摆角], 摆角_自适应[峰值索引_自适�
 文本摆角 += f'改进:\n  RMS: {摆角均方改进:.1f}%\n  峰值: {摆角峰值改进:.1f}%'
 
 ax2.text(0.02, 0.98, 文本摆角, transform=ax2.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+         verticalalignment='top', bbox=框属性)
 
 # 添加注释突出更快衰减
 中点 = len(t) // 2

@@ -26,7 +26,6 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 # 设置出版物级别的参数
-rcParams['font.family'] = ['serif', 'sans-serif']
 rcParams['font.size'] = 10
 rcParams['axes.labelsize'] = 10
 rcParams['axes.titlesize'] = 11
@@ -298,7 +297,7 @@ ax1.annotate(f'峰值: {误差峰值:.2f} m',
 文本 += f'峰值误差: {误差峰值:.3f} m'
 框属性 = dict(boxstyle='round', facecolor='lightblue', alpha=0.8)
 ax1.text(0.72, 0.95, 文本, transform=ax1.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+         verticalalignment='top', bbox=框属性)
 
 ax1.set_ylabel('跟踪误差 $|e(t)|$ (m)', fontsize=10)
 ax1.set_xlabel('时间 (s)', fontsize=10)
@@ -354,7 +353,7 @@ if 收敛时间:
 文本 += f'风后最大值: {摆角风后最大值:.1f}°\n'
 文本 += f'峰值摆角: {摆角峰值:.1f}°'
 ax2.text(0.72, 0.95, 文本, transform=ax2.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+         verticalalignment='top', bbox=框属性)
 
 ax2.set_ylabel('摆角 $|\\theta(t)|$ (度)', fontsize=10)
 ax2.set_xlabel('时间 (s)', fontsize=10)
@@ -400,7 +399,7 @@ if np.any(违反下界):
 文本 += f'约束范围: [{最小张力}, {最大张力}] N\n'
 文本 += f'违反: {张力违反数} 样本'
 ax3.text(0.02, 0.95, 文本, transform=ax3.transAxes, fontsize=8,
-         verticalalignment='top', bbox=框属性, family='monospace')
+         verticalalignment='top', bbox=框属性)
 
 # 添加关于软约束的注释
 ax3.text(0.68, 0.4, '软约束允许\n短暂违反',

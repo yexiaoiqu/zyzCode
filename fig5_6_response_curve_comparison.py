@@ -16,7 +16,6 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import rcParams
 
 # Set publication-quality parameters
-rcParams['font.family'] = 'serif'
 rcParams['font.size'] = 10
 rcParams['axes.labelsize'] = 11
 rcParams['axes.titlesize'] = 12
