@@ -111,7 +111,7 @@ for gy in 网格y:
     [地面起始_x, 地面起始_y + 地面尺寸, 地面高度]
 ])
 地面平面 = Poly3DCollection([地面顶点], alpha=0.08,
-                                facecolor='#CCCCCC', edgecolor='#999999', linewidth=1.5)
+                            facecolor='#CCCCCC', edgecolor='#999999', linewidth=1.5)
 ax.add_collection3d(地面平面)
 
 # 步骤3: 绘制无人机机体和质心

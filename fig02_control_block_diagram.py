@@ -251,4 +251,3 @@ plt.savefig(output_path, dpi=300, bbox_inches='tight',
             facecolor='white', edgecolor='none')
 print(f"图片已保存到: {output_path}")
 plt.show()
-

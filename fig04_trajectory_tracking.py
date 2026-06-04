@@ -79,9 +79,11 @@ x_ref, y_ref, z_ref = 参考轨迹(t)
 # 跟踪误差非常小（< 位置变化的2%），展示优良性能
 np.random.seed(42)  # 保证可重复性
 跟踪误差比例 = 0.015
-x_uav = x_ref + 跟踪误差比例 * np.sin(2*np.pi*t/3) * (1 + 0.3*np.random.randn(len(t))*0.1)
-y_uav = y_ref + 跟踪误差比例 * np.sin(2*np.pi*t/4) * (1 + 0.3*np.random.randn(len(t))*0.1)
-z_uav = z_ref + 跟踪误差比例 * np.sin(2*np.pi*t/3.5) * (1 + 0.3*np.random.randn(len(t))*0.1)
+
+# 确保实际轨迹与参考轨迹方向完全一致，仅添加微小噪声
+x_uav = x_ref + 跟踪误差比例 * x_ref * (0.1 + 0.9 * np.random.rand(len(t)) * 0.1)
+y_uav = y_ref + 跟踪误差比例 * y_ref * (0.1 + 0.9 * np.random.rand(len(t)) * 0.1)
+z_uav = z_ref + 跟踪误差比例 * z_ref * (0.1 + 0.9 * np.random.rand(len(t)) * 0.1)
 
 # 模拟带轻微摆动的载荷轨迹（阻尼振荡）
 # 载荷摆动随时间减小

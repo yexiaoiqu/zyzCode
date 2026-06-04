@@ -108,9 +108,9 @@ class 控制器参数:
         if self.S_increment is None:
             self.S_increment = np.diag([1.0, 1.0, 1.0, 1.0])
         if self.u_min is None:
-            self.u_min = np.array([5.0, -5.0, -5.0, -2.0])
+            self.u_min = np.array([0.0, -10.0, -10.0, -5.0])
         if self.u_max is None:
-            self.u_max = np.array([30.0, 5.0, 5.0, 2.0])
+            self.u_max = np.array([50.0, 10.0, 10.0, 5.0])
         if self.L_obs is None:
             self.L_obs = np.array([10.0, 10.0, 10.0])
 
@@ -215,10 +215,11 @@ class 无人机吊载系统:
         c_psi = np.cos(psi)
         s_psi = np.sin(psi)
 
-        # 惯性坐标系下推力分量
-        Tx_inertial = T * (s_theta * c_psi)
-        Ty_inertial = T * (s_theta * s_psi)
-        Tz_inertial = T * (c_theta * c_phi)
+        # 惯性坐标系下推力分量（标准ZYX欧拉角旋转）
+        # 推力在机体坐标系中沿-z轴（向下），转换到惯性坐标系
+        Tx_inertial = T * (s_theta * c_psi + s_phi * s_psi * c_theta)
+        Ty_inertial = T * (s_theta * s_psi - s_phi * c_psi * c_theta)
+        Tz_inertial = T * (c_phi * c_theta)
 
         # 总力
         Fx_total = Tx_inertial + T_cx + F_dx
@@ -1290,16 +1291,6 @@ class 仿真环境:
             x_dot = self.system.动力学(x, u_opt, d_wind)
             x_next = x + x_dot * dt
 
-            # 裁剪状态防止数值问题
-            x_next[6:8] = np.clip(x_next[6:8], -np.deg2rad(60), np.deg2rad(60))
-
-            # 每步记录自适应权重缩放因子
-            e_p_step = x[0:3] - x_ref_trajectory[0, 0:3]
-            kappa_e_step, kappa_theta_step = self.controller.自适应权重.计算缩放因子(
-                e_p_step, x[6], x[7])
-            kappa_e_per_step[k] = kappa_e_step
-            kappa_theta_per_step[k] = kappa_theta_step
-
             # 存储数据
             x_history[k] = x
             u_history[k] = u_opt
@@ -1308,444 +1299,307 @@ class 仿真环境:
             solve_time_history[k] = solve_time
             feasibility_history[k] = feasible
 
+            if hasattr(self.controller.自适应权重, 'kappa_e_history'):
+                if self.controller.自适应权重.kappa_e_history:
+                    kappa_e_per_step[k] = self.controller.自适应权重.kappa_e_history[-1]
+                    kappa_theta_per_step[k] = self.controller.自适应权重.kappa_theta_history[-1]
+
             # 更新状态和控制
             x = x_next
             u = u_opt
 
-            # 进度报告
-            if k % 100 == 0 or not feasible:
-                status = "✓" if feasible else "✗"
-                print(f"[t={t:5.2f}s] {status} 位置=[{x[0]:5.2f},{x[1]:5.2f},{x[2]:5.2f}], " +
-                      f"摆动=[{np.rad2deg(x[6]):5.1f}°,{np.rad2deg(x[7]):5.1f}°], " +
-                      f"求解={solve_time*1000:5.1f}ms")
+            # 进度输出
+            if (k + 1) % (N_steps // 10) == 0:
+                print(f"进度: {((k + 1) / N_steps * 100):.1f}%")
 
         print(f"\n{'='*80}")
-        print("仿真完成!")
-        print(f"{'='*80}\n")
+        print("仿真完成")
+        print(f"{'='*80}")
 
-        # 编译结果
+        # 打包结果
         results = {
             'time': time_vec,
-            'state': x_history,
-            'control': u_history,
-            'reference': x_ref_history,
-            'disturbance_estimate': d_hat_history,
+            'x': x_history,
+            'u': u_history,
+            'x_ref': x_ref_history,
+            'd_hat': d_hat_history,
             'solve_time': solve_time_history,
             'feasibility': feasibility_history,
-            'controller_metrics': {
-                'solve_times': self.controller.solve_times,
-                'cost_history': self.controller.cost_history,
-                'constraint_violations': self.controller.constraint_violations,
-                'kappa_e_history': self.controller.自适应权重.kappa_e_history,
-                'kappa_theta_history': self.controller.自适应权重.kappa_theta_history
-            }
+            'kappa_e': kappa_e_per_step,
+            'kappa_theta': kappa_theta_per_step,
+            'cost_history': self.controller.cost_history,
+            'V_history': self.controller.lyapunov.V_history,
+            'constraint_violations': self.controller.constraint_violations,
+            'system_params': self.system.params.转字典()
         }
 
         return results
 
-
-# ================================================================================
-# 可视化和分析
-# ================================================================================
-
-class 结果分析器:
-    """
-    综合结果分析和可视化
-    """
-
-    @staticmethod
-    def 计算性能指标(results: Dict) -> Dict:
+    def 可视化结果(self, results: Dict, save_figures: bool = True,
+                     show_plots: bool = True):
         """
-        计算定量性能指标
+        可视化仿真结果
+
+        参数:
+            results: 仿真结果字典
+            save_figures: 是否保存图形
+            show_plots: 是否显示图形
+        """
+        time_vec = results['time']
+        x_history = results['x']
+        u_history = results['u']
+        x_ref_history = results['x_ref']
+
+        # 创建输出目录
+        import os
+        os.makedirs('outputs', exist_ok=True)
+
+        # 图1: 三维轨迹
+        fig1 = plt.figure(figsize=(8, 6))
+        ax1 = fig1.add_subplot(111, projection='3d')
+        ax1.plot(x_history[:, 0], x_history[:, 1], x_history[:, 2], 'b-',
+                 linewidth=2, label='无人机轨迹')
+        ax1.plot(x_ref_history[:, 0], x_ref_history[:, 1], x_ref_history[:, 2],
+                 'k--', linewidth=1.5, label='参考轨迹')
+        ax1.set_xlabel('X (m)')
+        ax1.set_ylabel('Y (m)')
+        ax1.set_zlabel('Z (m)')
+        ax1.set_title('三维轨迹跟踪')
+        ax1.legend()
+        ax1.grid(True)
+        if save_figures:
+            plt.savefig('outputs/trajectory_3d.png', dpi=300, bbox_inches='tight')
+
+        # 图2: 位置响应
+        fig2, axes2 = plt.subplots(3, 1, figsize=(10, 8))
+        axes2[0].plot(time_vec, x_history[:, 0], 'b-', label='实际')
+        axes2[0].plot(time_vec, x_ref_history[:, 0], 'k--', label='参考')
+        axes2[0].set_ylabel('X位置 (m)')
+        axes2[0].legend()
+        axes2[0].grid(True)
+
+        axes2[1].plot(time_vec, x_history[:, 1], 'b-', label='实际')
+        axes2[1].plot(time_vec, x_ref_history[:, 1], 'k--', label='参考')
+        axes2[1].set_ylabel('Y位置 (m)')
+        axes2[1].legend()
+        axes2[1].grid(True)
+
+        axes2[2].plot(time_vec, x_history[:, 2], 'b-', label='实际')
+        axes2[2].plot(time_vec, x_ref_history[:, 2], 'k--', label='参考')
+        axes2[2].set_xlabel('时间 (s)')
+        axes2[2].set_ylabel('Z位置 (m)')
+        axes2[2].legend()
+        axes2[2].grid(True)
+
+        fig2.suptitle('位置跟踪响应')
+        if save_figures:
+            plt.savefig('outputs/position_response.png', dpi=300, bbox_inches='tight')
+
+        # 图3: 摆角响应
+        fig3, axes3 = plt.subplots(2, 1, figsize=(10, 6))
+        axes3[0].plot(time_vec, np.rad2deg(x_history[:, 6]), 'r-')
+        axes3[0].set_ylabel('Alpha (度)')
+        axes3[0].grid(True)
+
+        axes3[1].plot(time_vec, np.rad2deg(x_history[:, 7]), 'g-')
+        axes3[1].set_xlabel('时间 (s)')
+        axes3[1].set_ylabel('Beta (度)')
+        axes3[1].grid(True)
+
+        fig3.suptitle('摆角响应')
+        if save_figures:
+            plt.savefig('outputs/swing_response.png', dpi=300, bbox_inches='tight')
+
+        # 图4: 控制输入
+        fig4, axes4 = plt.subplots(4, 1, figsize=(10, 10))
+        axes4[0].plot(time_vec, u_history[:, 0], 'm-')
+        axes4[0].set_ylabel('推力 (N)')
+        axes4[0].grid(True)
+
+        axes4[1].plot(time_vec, u_history[:, 1], 'c-')
+        axes4[1].set_ylabel('滚转扭矩')
+        axes4[1].grid(True)
+
+        axes4[2].plot(time_vec, u_history[:, 2], 'y-')
+        axes4[2].set_ylabel('俯仰扭矩')
+        axes4[2].grid(True)
+
+        axes4[3].plot(time_vec, u_history[:, 3], 'k-')
+        axes4[3].set_xlabel('时间 (s)')
+        axes4[3].set_ylabel('偏航扭矩')
+        axes4[3].grid(True)
+
+        fig4.suptitle('控制输入')
+        if save_figures:
+            plt.savefig('outputs/control_inputs.png', dpi=300, bbox_inches='tight')
+
+        # 图5: 自适应权重
+        if 'kappa_e' in results:
+            fig5, axes5 = plt.subplots(2, 1, figsize=(10, 6))
+            axes5[0].plot(time_vec, results['kappa_e'], 'b-')
+            axes5[0].set_ylabel('Kappa_e')
+            axes5[0].grid(True)
+
+            axes5[1].plot(time_vec, results['kappa_theta'], 'r-')
+            axes5[1].set_xlabel('时间 (s)')
+            axes5[1].set_ylabel('Kappa_theta')
+            axes5[1].grid(True)
+
+            fig5.suptitle('自适应权重缩放因子')
+            if save_figures:
+                plt.savefig('outputs/adaptive_weights.png', dpi=300, bbox_inches='tight')
+
+        if show_plots:
+            plt.show()
+
+    def 计算性能指标(self, results: Dict) -> Dict:
+        """
+        计算关键性能指标
+
+        参数:
+            results: 仿真结果字典
 
         返回:
             metrics: 性能指标字典
         """
-        x = results['state']
-        x_ref = results['reference']
-        u = results['control']
-        time = results['time']
+        time_vec = results['time']
+        x_history = results['x']
+        x_ref_history = results['x_ref']
 
-        # 跟踪指标
-        e_p = np.linalg.norm(x[:, 0:3] - x_ref[:, 0:3], axis=1)
-        rmse_tracking = np.sqrt(np.mean(e_p**2))
-        max_tracking_error = np.max(e_p)
+        # 跟踪误差
+        position_error = x_history[:, 0:3] - x_ref_history[:, 0:3]
+        rmse = np.sqrt(np.mean(position_error**2))
+        max_error = np.max(np.linalg.norm(position_error, axis=1))
 
-        # 摆动指标
-        swing_angles = np.rad2deg(np.abs(x[:, 6:8]))
-        max_swing_alpha = np.max(swing_angles[:, 0])
-        max_swing_beta = np.max(swing_angles[:, 1])
-        max_swing = max(max_swing_alpha, max_swing_beta)
+        # 摆角指标
+        max_swing_alpha = np.max(np.abs(np.rad2deg(x_history[:, 6])))
+        max_swing_beta = np.max(np.abs(np.rad2deg(x_history[:, 7])))
 
-        # 调节时间（当跟踪误差 < 0.1m）
-        settled_idx = np.where(e_p < 0.1)[0]
-        if len(settled_idx) > 0:
-            settling_time = time[settled_idx[0]] if settled_idx[0] > 0 else 0.0
-        else:
-            settling_time = time[-1]
+        # 调节时间（达到2%误差带）
+        error_norm = np.linalg.norm(position_error, axis=1)
+        final_error = error_norm[-10:]
+        threshold = 0.02 * np.max(error_norm)
+        settling_idx = np.where(error_norm < threshold)[0]
+        settling_time = time_vec[settling_idx[0]] if len(settling_idx) > 0 else np.nan
 
         # 控制努力
-        control_effort = np.sum(np.sum(u**2, axis=1)) * (time[1] - time[0])
+        control_effort = np.mean(np.linalg.norm(results['u'], axis=1))
 
-        # 计算指标
-        solve_times = results['solve_time']
-        avg_solve_time = np.mean(solve_times) * 1000  # ms
-        max_solve_time = np.max(solve_times) * 1000   # ms
-
-        # 可行率
-        feasibility = results['feasibility']
-        feasibility_rate = np.sum(feasibility) / len(feasibility) * 100
+        # 计算效率
+        avg_solve_time = np.mean(results['solve_time'])
+        max_solve_time = np.max(results['solve_time'])
 
         metrics = {
-            'RMSE_tracking': rmse_tracking,
-            'Max_tracking_error': max_tracking_error,
-            'Max_swing_angle': max_swing,
-            'Settling_time': settling_time,
-            'Control_effort': control_effort,
-            'Avg_solve_time_ms': avg_solve_time,
-            'Max_solve_time_ms': max_solve_time,
-            'Feasibility_rate': feasibility_rate
+            'RMSE': rmse,
+            '最大跟踪误差': max_error,
+            '最大摆角Alpha': max_swing_alpha,
+            '最大摆角Beta': max_swing_beta,
+            '调节时间': settling_time,
+            '平均控制努力': control_effort,
+            '平均求解时间': avg_solve_time,
+            '最大求解时间': max_solve_time,
+            '可行解比例': np.mean(results['feasibility'])
         }
 
         return metrics
 
-    @staticmethod
-    def 打印指标(metrics: Dict, title: str = "性能指标"):
-        """美观打印性能指标"""
-        print(f"\n{'='*80}")
-        print(f"{title:^80}")
-        print(f"{'='*80}")
-        print(f"  跟踪RMSE:        {metrics['RMSE_tracking']:.4f} m")
-        print(f"  最大跟踪误差:   {metrics['Max_tracking_error']:.4f} m")
-        print(f"  最大摆角:      {metrics['Max_swing_angle']:.2f}°")
-        print(f"  调节时间:        {metrics['Settling_time']:.2f} s")
-        print(f"  控制努力:       {metrics['Control_effort']:.2f}")
-        print(f"  平均求解时间:       {metrics['Avg_solve_time_ms']:.2f} ms")
-        print(f"  最大求解时间:       {metrics['Max_solve_time_ms']:.2f} ms")
-        print(f"  可行率:     {metrics['Feasibility_rate']:.1f}%")
-        print(f"{'='*80}\n")
 
-    @staticmethod
-    def 绘制综合结果(results: Dict, save_path: str = None):
-        """
-        创建仿真结果的综合可视化
-        """
-        time = results['time']
-        x = results['state']
-        u = results['control']
-        x_ref = results['reference']
+# ================================================================================
+# Dryden风模型
+# ================================================================================
 
-        # 创建带子图的图形
-        fig = plt.figure(figsize=(16, 14))
-        gs = fig.add_gridspec(4, 3, hspace=0.5, wspace=0.35)
+def dryden_wind_model(t: float, sigma_u: float = 1.0, sigma_v: float = 1.0,
+                       sigma_w: float = 0.5, L_u: float = 10.0,
+                       L_v: float = 10.0, L_w: float = 5.0, dt: float = 0.05):
+    """
+    Dryden风模型实现
 
-        # ===== 第一行: 位置和跟踪误差 =====
-        ax1 = fig.add_subplot(gs[0, :2])
-        ax1.plot(time, x[:, 0], 'b-', linewidth=2, label='x')
-        ax1.plot(time, x[:, 1], 'r-', linewidth=2, label='y')
-        ax1.plot(time, x[:, 2], 'g-', linewidth=2, label='z')
-        ax1.plot(time, x_ref[:, 0], 'b--', alpha=0.5, linewidth=1)
-        ax1.plot(time, x_ref[:, 1], 'r--', alpha=0.5, linewidth=1)
-        ax1.plot(time, x_ref[:, 2], 'g--', alpha=0.5, linewidth=1)
-        ax1.set_ylabel('位置 [m]', fontsize=11, fontweight='bold')
-        ax1.set_xlabel('时间 [s]', fontsize=11)
-        ax1.legend(loc='best', fontsize=10)
-        ax1.grid(True, alpha=0.3)
-        ax1.set_title('位置跟踪', fontsize=12, fontweight='bold')
+    参数:
+        t: 当前时间
+        sigma_u, sigma_v, sigma_w: 风速标准差
+        L_u, L_v, L_w: 湍流尺度
+        dt: 采样时间
 
-        ax2 = fig.add_subplot(gs[0, 2])
-        e_p = np.linalg.norm(x[:, 0:3] - x_ref[:, 0:3], axis=1)
-        ax2.plot(time, e_p, 'k-', linewidth=2)
-        ax2.fill_between(time, 0, e_p, alpha=0.3, color='red')
-        ax2.set_ylabel('误差 [m]', fontsize=11, fontweight='bold')
-        ax2.set_xlabel('时间 [s]', fontsize=11)
-        ax2.grid(True, alpha=0.3)
-        ax2.set_title('跟踪误差', fontsize=12, fontweight='bold')
+    返回:
+        wind: [wx, wy, wz] 风速向量
+    """
+    # 简化实现：使用滤波白噪声
+    np.random.seed(int(t * 1000))
 
-        # ===== 第二行: 摆角和角速度 =====
-        ax3 = fig.add_subplot(gs[1, :2])
-        ax3.plot(time, np.rad2deg(x[:, 6]), 'b-', linewidth=2, label='α')
-        ax3.plot(time, np.rad2deg(x[:, 7]), 'r-', linewidth=2, label='β')
-        ax3.axhline(y=30, color='k', linestyle='--', alpha=0.3, linewidth=1)
-        ax3.axhline(y=-30, color='k', linestyle='--', alpha=0.3, linewidth=1)
-        ax3.set_ylabel('摆角 [度]', fontsize=11, fontweight='bold')
-        ax3.set_xlabel('时间 [s]', fontsize=11)
-        ax3.legend(loc='best', fontsize=10)
-        ax3.grid(True, alpha=0.3)
-        ax3.set_title('载荷摆角', fontsize=12, fontweight='bold')
+    # 时间常数
+    tau_u = L_u / (15.0)  # 假设平均风速15m/s
+    tau_v = L_v / (15.0)
+    tau_w = L_w / (15.0)
 
-        ax4 = fig.add_subplot(gs[1, 2])
-        ax4.plot(time, np.rad2deg(x[:, 8]), 'b-', linewidth=2, label='α̇')
-        ax4.plot(time, np.rad2deg(x[:, 9]), 'r-', linewidth=2, label='β̇')
-        ax4.set_ylabel('角速度 [度/s]', fontsize=11, fontweight='bold')
-        ax4.set_xlabel('时间 [s]', fontsize=11)
-        ax4.legend(loc='best', fontsize=10)
-        ax4.grid(True, alpha=0.3)
-        ax4.set_title('摆动角速度', fontsize=12, fontweight='bold')
+    # 状态（积分器状态）
+    if not hasattr(dryden_wind_model, 'state'):
+        dryden_wind_model.state = np.zeros(3)
 
-        # ===== 第三行: 控制输入 =====
-        ax5 = fig.add_subplot(gs[2, 0])
-        ax5.plot(time, u[:, 0], 'b-', linewidth=2)
-        ax5.axhline(y=30, color='r', linestyle='--', alpha=0.3, linewidth=1)
-        ax5.axhline(y=5, color='r', linestyle='--', alpha=0.3, linewidth=1)
-        ax5.set_ylabel('推力 [N]', fontsize=11, fontweight='bold')
-        ax5.set_xlabel('时间 [s]', fontsize=11)
-        ax5.grid(True, alpha=0.3)
-        ax5.set_title('推力控制', fontsize=12, fontweight='bold')
+    # 白噪声输入
+    wn = np.random.randn(3)
 
-        ax6 = fig.add_subplot(gs[2, 1:])
-        ax6.plot(time, u[:, 1], 'b-', linewidth=2, label='τ_φ')
-        ax6.plot(time, u[:, 2], 'r-', linewidth=2, label='τ_θ')
-        ax6.plot(time, u[:, 3], 'g-', linewidth=2, label='τ_ψ')
-        ax6.axhline(y=5, color='k', linestyle='--', alpha=0.3, linewidth=1)
-        ax6.axhline(y=-5, color='k', linestyle='--', alpha=0.3, linewidth=1)
-        ax6.set_ylabel('扭矩 [Nm]', fontsize=11, fontweight='bold')
-        ax6.set_xlabel('时间 [s]', fontsize=11)
-        ax6.legend(loc='best', fontsize=10)
-        ax6.grid(True, alpha=0.3)
-        ax6.set_title('姿态扭矩', fontsize=12, fontweight='bold')
+    # 一阶滤波
+    dryden_wind_model.state = dryden_wind_model.state + dt * (
+        -dryden_wind_model.state / np.array([tau_u, tau_v, tau_w]) +
+        wn * np.sqrt(2 / dt) * np.array([sigma_u, sigma_v, sigma_w])
+    )
 
-        # ===== 第四行: 计算和自适应权重 =====
-        ax7 = fig.add_subplot(gs[3, 0])
-        solve_times_ms = results['solve_time'] * 1000
-        ax7.plot(time, solve_times_ms, 'k-', linewidth=1.5)
-        ax7.axhline(y=50, color='r', linestyle='--', alpha=0.5, linewidth=2, label='采样周期')
-        ax7.fill_between(time, 0, solve_times_ms, alpha=0.3, color='blue')
-        ax7.set_ylabel('求解时间 [ms]', fontsize=11, fontweight='bold')
-        ax7.set_xlabel('时间 [s]', fontsize=11)
-        ax7.legend(loc='best', fontsize=10)
-        ax7.grid(True, alpha=0.3)
-        ax7.set_title('计算时间', fontsize=12, fontweight='bold')
-
-        ax8 = fig.add_subplot(gs[3, 1:])
-        if 'controller_metrics' in results:
-            kappa_e_full = results['controller_metrics']['kappa_e_history']
-            kappa_theta_full = results['controller_metrics']['kappa_theta_history']
-            # 每个仿真步中优化器多次调用update_weights，需按仿真步长截取
-            N = len(time)
-            kappa_e = kappa_e_full[:N]
-            kappa_theta = kappa_theta_full[:N]
-            time_ctrl = time
-            ax8.plot(time_ctrl, kappa_e, 'b-', linewidth=2, label='κ_e (位置)')
-            ax8.plot(time_ctrl, kappa_theta, 'r-', linewidth=2, label='κ_θ (摆动)')
-            ax8.set_ylabel('缩放因子', fontsize=11, fontweight='bold')
-            ax8.set_xlabel('时间 [s]', fontsize=11)
-            ax8.legend(loc='best', fontsize=10)
-            ax8.grid(True, alpha=0.3)
-            ax8.set_title('自适应权重缩放', fontsize=12, fontweight='bold')
-
-        plt.suptitle('约束自适应MPC: 综合结果',
-                    fontsize=14, fontweight='bold', y=0.995)
-
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"图形已保存到: {save_path}")
-
-        return fig
-
-    @staticmethod
-    def 绘制三维轨迹(results: Dict, save_path: str = None):
-        """
-        创建三维轨迹可视化
-        """
-        x = results['state']
-        x_ref = results['reference']
-
-        fig = plt.figure(figsize=(12, 10))
-        ax = fig.add_subplot(111, projection='3d')
-
-        # 实际轨迹
-        ax.plot(x[:, 0], x[:, 1], x[:, 2], 'b-', linewidth=2, label='实际')
-
-        # 参考轨迹
-        ax.plot(x_ref[:, 0], x_ref[:, 1], x_ref[:, 2], 'r--', linewidth=2, label='参考')
-
-        # 起点和终点
-        ax.scatter(x[0, 0], x[0, 1], x[0, 2], c='g', s=100, marker='o', label='起点')
-        ax.scatter(x[-1, 0], x[-1, 1], x[-1, 2], c='r', s=100, marker='s', label='终点')
-
-        ax.set_xlabel('X [m]', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Y [m]', fontsize=12, fontweight='bold')
-        ax.set_zlabel('Z [m]', fontsize=12, fontweight='bold')
-        ax.legend(fontsize=10)
-        ax.set_title('三维轨迹', fontsize=14, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"三维图形已保存到: {save_path}")
-
-        return fig
+    return dryden_wind_model.state
 
 
 # ================================================================================
-# 主仿真脚本
+# 主函数
 # ================================================================================
 
 def main():
     """
-    主仿真和分析脚本
+    主函数：运行完整仿真流程
     """
-    print("\n" + "="*80)
-    print(" 无人机吊载系统约束自适应MPC ".center(80, "="))
-    print("="*80 + "\n")
-
-    # ===== 设置 =====
+    # 创建系统参数
     sys_params = 系统参数()
+
+    # 创建控制器参数
     ctrl_params = 控制器参数()
 
+    # 创建系统模型
     system = 无人机吊载系统(sys_params)
+
+    # 创建控制器
     controller = 约束自适应MPC(system, ctrl_params)
+
+    # 创建仿真环境
     simulator = 仿真环境(system, controller, ctrl_params)
-    analyzer = 结果分析器()
 
-    # ===== 场景1: 标称阶跃响应 =====
-    print("\n" + "="*80)
-    print(" 场景1: 标称阶跃响应 ".center(80))
-    print("="*80)
-
-    results_nominal = simulator.仿真(
+    # 运行标称仿真
+    print("\n=== 标称仿真 ===")
+    nominal_results = simulator.仿真(
         T_sim=20.0,
         trajectory_type='step',
         trajectory_params={
-            'p_initial': np.array([0.0, 0.0, 5.0]),
-            'p_final': np.array([5.0, 3.0, 8.0]),
+            'p_initial': np.array([0, 0, 5]),
+            'p_final': np.array([5, 3, 8]),
             't_step': 2.0
         }
     )
 
-    metrics_nominal = analyzer.计算性能指标(results_nominal)
-    analyzer.打印指标(metrics_nominal, "场景1: 标称性能")
+    # 计算并打印性能指标
+    nominal_metrics = simulator.计算性能指标(nominal_results)
+    print("\n标称仿真性能指标:")
+    for key, value in nominal_metrics.items():
+        print(f"  {key}: {value:.4f}")
 
-    # ===== 场景2: 风干扰 =====
-    print("\n" + "="*80)
-    print(" 场景2: 风干扰抑制 ".center(80))
-    print("="*80)
+    # 可视化结果
+    simulator.可视化结果(nominal_results)
 
-    controller.重置()
-
-    def 风干扰(t):
-        if t >= 5.0:
-            return np.array([5.0, 0.0, 0.0])  # x方向5 m/s风
-        return np.zeros(3)
-
-    results_wind = simulator.仿真(
-        T_sim=20.0,
-        trajectory_type='step',
-        trajectory_params={
-            'p_initial': np.array([0.0, 0.0, 5.0]),
-            'p_final': np.array([5.0, 3.0, 8.0]),
-            't_step': 2.0
-        },
-        wind_disturbance=风干扰
-    )
-
-    metrics_wind = analyzer.计算性能指标(results_wind)
-    analyzer.打印指标(metrics_wind, "场景2: 有风干扰")
-
-    # ===== 场景3: 质量变化 =====
-    print("\n" + "="*80)
-    print(" 场景3: 突发载荷质量变化 ".center(80))
-    print("="*80)
-
-    controller.重置()
-    system.params.m_L = 0.5  # 重置为标称值
-
-    results_mass = simulator.仿真(
-        T_sim=20.0,
-        trajectory_type='step',
-        trajectory_params={
-            'p_initial': np.array([0.0, 0.0, 5.0]),
-            'p_final': np.array([5.0, 3.0, 8.0]),
-            't_step': 2.0
-        },
-        mass_change_event=(10.0, 0.8)  # t=10s增加60%
-    )
-
-    metrics_mass = analyzer.计算性能指标(results_mass)
-    analyzer.打印指标(metrics_mass, "场景3: 质量变化恢复")
-
-    # ===== 生成图形 =====
-    print("\n" + "="*80)
-    print(" 生成可视化 ".center(80))
-    print("="*80 + "\n")
-
-    # 创建输出目录
+    # 保存结果到文件
     import os
     os.makedirs('outputs', exist_ok=True)
+    with open('outputs/simulation_results.json', 'w', encoding='utf-8') as f:
+        json.dump({k: v.tolist() if isinstance(v, np.ndarray) else v
+                  for k, v in nominal_results.items()}, f, ensure_ascii=False, indent=2)
 
-    # 综合结果图
-    analyzer.绘制综合结果(
-        results_nominal,
-        save_path=os.path.join('outputs', 'results_nominal.png')
-    )
-
-    analyzer.绘制综合结果(
-        results_wind,
-        save_path=os.path.join('outputs', 'results_wind.png')
-    )
-
-    analyzer.绘制综合结果(
-        results_mass,
-        save_path=os.path.join('outputs', 'results_mass_change.png')
-    )
-
-    # 三维轨迹图
-    analyzer.绘制三维轨迹(
-        results_nominal,
-        save_path=os.path.join('outputs', 'trajectory_3d_nominal.png')
-    )
-
-    # ===== 总结对比 =====
-    print("\n" + "="*80)
-    print(" 总结: 性能对比 ".center(80))
-    print("="*80)
-
-    comparison_data = {
-        '场景': ['标称', '风 (5 m/s)', '质量变化 (+60%)'],
-        'RMSE [m]': [
-            metrics_nominal['RMSE_tracking'],
-            metrics_wind['RMSE_tracking'],
-            metrics_mass['RMSE_tracking']
-        ],
-        '最大摆角 [°]': [
-            metrics_nominal['Max_swing_angle'],
-            metrics_wind['Max_swing_angle'],
-            metrics_mass['Max_swing_angle']
-        ],
-        '调节时间 [s]': [
-            metrics_nominal['Settling_time'],
-            metrics_wind['Settling_time'],
-            metrics_mass['Settling_time']
-        ],
-        '平均求解 [ms]': [
-            metrics_nominal['Avg_solve_time_ms'],
-            metrics_wind['Avg_solve_time_ms'],
-            metrics_mass['Avg_solve_time_ms']
-        ]
-    }
-
-    print(f"\n{'场景':<25} {'RMSE':>10} {'最大摆角':>12} {'调节时间':>12} {'平均求解':>12}")
-    print("-" * 80)
-    for i in range(3):
-        print(f"{comparison_data['场景'][i]:<25} " +
-              f"{comparison_data['RMSE [m]'][i]:>9.4f}m " +
-              f"{comparison_data['最大摆角 [°]'][i]:>11.2f}° " +
-              f"{comparison_data['调节时间 [s]'][i]:>11.2f}s " +
-              f"{comparison_data['平均求解 [ms]'][i]:>11.2f}ms")
-
-    print("\n" + "="*80)
-    print(" 仿真完成! ".center(80))
-    print("="*80 + "\n")
-
-    print("生成文件:")
-    print("  - results_nominal.png")
-    print("  - results_wind.png")
-    print("  - results_mass_change.png")
-    print("  - trajectory_3d_nominal.png")
-
-    plt.show()
+    print("\n仿真结果已保存到 outputs/simulation_results.json")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
